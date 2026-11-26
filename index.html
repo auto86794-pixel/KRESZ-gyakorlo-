@@ -10,6 +10,7 @@
 .topic-picker{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-bottom:20px}.topic-picker label{font-weight:750}.topic-picker select{font:inherit;color:var(--ink);min-height:44px;max-width:100%;padding:8px 12px;border:1px solid #aebfb5;border-radius:10px;background:#fff}.topic-picker select:focus-visible{outline:3px solid #377fd2;outline-offset:3px}
 .trial-results{padding-left:1.3rem}.trial-results li{margin-block:10px}.trial-results summary{cursor:pointer;font-weight:650;padding-block:5px}.trial-results p{margin:5px 0 12px}
 .sign-panel{display:flex;gap:14px;align-items:center;background:#eaf3f6;padding:12px 16px;border-bottom:1px solid #d1e0e2}.sign-panel canvas{width:66px;height:66px;flex:none}.sign-panel strong{font-size:1rem;line-height:1.3}.sign-panel small{display:block;color:#38544d;font-size:.875rem}.map figcaption{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.playback{background:#fff;border-top:1px solid var(--line);padding:12px 14px}.playback label{display:block;font-weight:700}.playback input{width:100%;min-height:38px;accent-color:var(--green);margin:2px 0}.playback-actions{display:flex;gap:8px;flex-wrap:wrap}.playback output{display:block;margin-top:8px;color:#314b46;font-size:.875rem}
 </style>
 </head>
 <body>
@@ -30,7 +31,17 @@
 <div class="progress"><span id="counter"></span><span id="score"></span></div>
 <progress id="progress" max="10" value="0" aria-label="Megoldott helyzetek"></progress>
 <div class="grid">
-<figure class="card map"><div class="sign-panel" id="sign-panel" hidden><canvas id="sign-preview" width="100" height="100" aria-hidden="true"></canvas><div><small>Az A autó táblája</small><strong id="sign-name"></strong></div></div><canvas id="map" width="600" height="480" role="img"></canvas><figcaption><span id="caption"></span> <button class="secondary" id="view" aria-pressed="false" hidden>Vezetői nézet</button></figcaption></figure>
+<figure class="card map"><div class="sign-panel" id="sign-panel" hidden><canvas id="sign-preview" width="100" height="100" aria-hidden="true"></canvas><div><small>Az A autó táblája</small><strong id="sign-name"></strong></div></div><canvas id="map" width="600" height="480" role="img"></canvas><figcaption><span id="caption"></span> <button class="secondary" id="view" aria-pressed="false" hidden>Vezetői nézet</button></figcaption>
+<div class="playback" id="playback" hidden>
+<label for="timeline">Áthaladás visszajátszása</label>
+<input id="timeline" type="range" min="0" max="1000" value="0">
+<div class="playback-actions">
+<button class="primary" id="replay">Lejátszás</button>
+<button class="secondary" id="previous-frame">Előző lépés</button>
+<button class="secondary" id="next-frame">Következő lépés</button>
+</div>
+<output id="playback-status"></output>
+</div></figure>
 <section class="card lesson" aria-labelledby="title">
 <h2 id="title" tabindex="-1"></h2>
 <p id="scenario"></p>
@@ -41,7 +52,6 @@
 <div class="buttons">
 <button class="primary" id="check">Ellenőrzés</button>
 <button class="secondary" id="reset">Sorrend törlése</button>
-<button class="secondary" id="replay" hidden>Animáció lejátszása</button>
 <button class="primary" id="next" hidden></button>
 <button class="secondary" id="restart" hidden>Összes feladat újrakezdése</button>
 </div>
@@ -143,6 +153,9 @@ try {
 }
 let queue, results, finished, review, index;
 let chosen = [], solved = false, frame = 0;
+const phaseTime = 1600;
+let elapsed = 0;
+let playing = false;
 
 function roundStorageKey() {
   return topic === 'all' ? mixedStorageKey : topicStorageKey + '-' + topic;
@@ -467,7 +480,7 @@ function showScore() {
   el('progress').value=results.length;
 }
 function render(focus=false) {
-  cancelAnimationFrame(frame);
+  resetPlayback();
   active=scenarios[queue[index]];chosen=[];solved=false;
   el('counter').textContent=(review?'Ismétlés · ':'')+(index+1)+' / '+queue.length+' helyzet';
   el('title').textContent=isTrial()?'Próbakör':active[0];
@@ -500,7 +513,7 @@ function render(focus=false) {
     button.append(icon,desc,rank);button.addEventListener('click',()=>select(ids[i]));return button;
   }));
   for(const id of ['instruction','choices','check','reset','map']) el(id).hidden=false;
-  for(const id of ['feedback','replay','next','restart','trial-results']) el(id).hidden=true;
+  for(const id of ['feedback','next','restart','trial-results']) el(id).hidden=true;
   refreshChoices();showScore();drawMap();
   if(results[index] !== undefined) {
     chosen=[...results[index]];
@@ -527,21 +540,66 @@ function refreshChoices() {
   el('check').disabled=chosen.length!==active[3].length;
   el('reset').disabled=chosen.length===0;
 }
-function replay() {
-  cancelAnimationFrame(frame);drawMap();
-  if(reducedMotion.matches)return;
-  const start=performance.now();
-  const phases=active[6]?.animate || [...active[3]];
-  function animate(now) {
-    const positions={};
-    phases.forEach((group,i)=>{
-      for(const id of group)positions[id]=Math.max(0,Math.min(1,(now-start-i*1230)/1200));
-    });
-    drawMap(positions);
-    if(now-start<phases.length*1230)frame=requestAnimationFrame(animate);
-    else drawMap();
+function animationPhases() {
+  return active[6]?.animate || [...active[3]];
+}
+function animationDuration() {
+  return animationPhases().length * phaseTime;
+}
+function stopPlayback() {
+  cancelAnimationFrame(frame);
+  playing=false;
+}
+function resetPlayback() {
+  stopPlayback();
+  elapsed=0;
+  el('playback').hidden=true;
+}
+function drawPlayback() {
+  const phases=animationPhases();
+  const total=animationDuration();
+  const positions={};
+  phases.forEach((group,i)=>{
+    for(const id of group)positions[id]=Math.max(0,Math.min(1,(elapsed-i*phaseTime)/(phaseTime-70)));
+  });
+  drawMap(positions);
+  const status=elapsed===0?'Kiinduló helyzet':elapsed>=total?'Az áthaladás befejeződött':
+    'Áthaladás: '+[...phases[Math.floor(elapsed/phaseTime)]].join(' és ');
+  if(el('playback-status').textContent!==status)el('playback-status').textContent=status;
+  el('timeline').setAttribute('aria-valuetext',status);
+  el('timeline').value=Math.round(elapsed/total*1000);
+  el('replay').textContent=playing?'Szünet':elapsed>=total?'Újrajátszás':elapsed>0?'Folytatás':'Lejátszás';
+  el('previous-frame').disabled=elapsed===0;
+  el('next-frame').disabled=elapsed>=total;
+}
+function togglePlayback() {
+  if(playing){
+    stopPlayback();
+    drawPlayback();
+    return;
   }
-  frame=requestAnimationFrame(animate);
+  if(elapsed>=animationDuration())elapsed=0;
+  const start=performance.now()-elapsed;
+  playing=true;
+  drawPlayback();
+  function tick(now) {
+    elapsed=Math.min(animationDuration(),now-start);
+    if(elapsed>=animationDuration())stopPlayback();
+    drawPlayback();
+    if(playing)frame=requestAnimationFrame(tick);
+  }
+  frame=requestAnimationFrame(tick);
+}
+function seek(time) {
+  stopPlayback();
+  elapsed=time;
+  drawPlayback();
+}
+function stepPlayback(direction) {
+  const midpoints=animationPhases().map((_,i)=>(i+.5)*phaseTime);
+  const stops=[0,...midpoints,animationDuration()];
+  const target=direction>0?stops.find(t=>t>elapsed):[...stops].reverse().find(t=>t<elapsed);
+  if(target!==undefined)seek(target);
 }
 el('check').onclick=()=>{
   if(solved||chosen.length!==active[3].length)return;
@@ -570,18 +628,22 @@ function showAnswer(animate) {
   feedback.hidden=false;feedback.replaceChildren(strong,explanation,link);
   refreshChoices();showScore();
   el('check').hidden=true;el('reset').hidden=true;
-  el('replay').hidden=reducedMotion.matches;
+  el('playback').hidden=false;
+  drawPlayback();
   el('next').hidden=false;el('next').textContent=index===queue.length-1?'Eredmény':'Következő helyzet';
-  if(animate){el('next').focus();replay();}
+  if(animate){el('next').focus();if(!reducedMotion.matches)togglePlayback();}
 }
 el('reset').onclick=()=>{chosen=[];refreshChoices();el('choices').firstElementChild.focus();};
-el('replay').onclick=replay;
+el('replay').onclick=togglePlayback;
+el('timeline').oninput=()=>seek(Number(el('timeline').value)*animationDuration()/1000);
+el('previous-frame').onclick=()=>stepPlayback(-1);
+el('next-frame').onclick=()=>stepPlayback(1);
 el('view').onclick=()=>{
-  cancelAnimationFrame(frame);
   const driverView=el('view').getAttribute('aria-pressed')==='true';
   el('view').setAttribute('aria-pressed',String(!driverView));
   el('view').textContent=driverView?'Vezetői nézet':'Felülnézet';
-  drawMap();
+  if(el('playback').hidden)drawMap();
+  else drawPlayback();
 };
 function startRound(tasks, isReview) {
   queue=tasks;
@@ -593,14 +655,14 @@ function startRound(tasks, isReview) {
   render(true);
 }
 function showSummary(focus=false) {
-  cancelAnimationFrame(frame);
+  resetPlayback();
   drawMap();
   const missed=missedTasks();
   if(isTrial()){showTrialSummary(focus);return;}
   el('title').textContent=review?'Befejezted az ismétlést':'Befejezted a gyakorlást';
   el('scenario').textContent=queue.length+' helyzetből '+points()+' feladatot oldottál meg helyesen.';
   el('counter').textContent=review?'Ismétlés vége':'Gyakorlás vége';
-  for(const id of ['instruction','choices','feedback','replay','check','reset'])el(id).hidden=true;
+  for(const id of ['instruction','choices','feedback','check','reset'])el(id).hidden=true;
   el('next').hidden=false;
   el('next').textContent=missed.length?'Hibás feladatok gyakorlása ('+missed.length+')':(topic==='all'?'Összes feladat újrakezdése':'Témakör újrakezdése');
   el('restart').textContent=topic==='all'?'Összes feladat újrakezdése':'Témakör újrakezdése';
@@ -612,7 +674,7 @@ function showTrialSummary(focus) {
   el('title').textContent='Próbakör eredménye';
   el('scenario').textContent=queue.length+' helyzetből '+points()+' feladatot oldottál meg helyesen. Nyisd le a helyzeteket a magyarázathoz.';
   el('counter').textContent='Próbakör vége';
-  for(const id of ['instruction','choices','feedback','replay','check','reset','restart','map'])el(id).hidden=true;
+  for(const id of ['instruction','choices','feedback','check','reset','restart','map'])el(id).hidden=true;
   el('sign-panel').hidden=true;
   const list=el('trial-results');
   list.replaceChildren(...queue.map((task, i)=>{
