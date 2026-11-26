@@ -17,18 +17,19 @@
 <div class="topic-picker">
 <label for="topic">Gyakorlási témakör</label>
 <select id="topic">
-<option value="all">Vegyes gyakorlás · 10 helyzet</option>
-<option value="right">Jobbkéz-szabály · 3 helyzet</option>
-<option value="signs">Elsőbbségadás és STOP · 3 helyzet</option>
-<option value="turning">Balra kanyarodás · 3 helyzet</option>
-<option value="lights">Jelzőlámpák · 3 helyzet</option>
+<option value="all">Vegyes gyakorlás · 50 helyzet</option>
+<option value="right">Jobbkéz-szabály · 11 helyzet</option>
+<option value="signs">Elsőbbségadás és STOP · 11 helyzet</option>
+<option value="turning">Balra kanyarodás · 11 helyzet</option>
+<option value="lights">Jelzőlámpák · 11 helyzet</option>
+<option value="narrow">Útszűkület · 8 helyzet</option>
 <option value="trial">Próbakör · 10 kevert helyzet</option>
 </select>
 </div>
 <div class="progress"><span id="counter"></span><span id="score"></span></div>
 <progress id="progress" max="10" value="0" aria-label="Megoldott helyzetek"></progress>
 <div class="grid">
-<figure class="card map"><canvas id="map" width="600" height="480" role="img"></canvas><figcaption id="caption"></figcaption></figure>
+<figure class="card map"><canvas id="map" width="600" height="480" role="img"></canvas><figcaption><span id="caption"></span> <button class="secondary" id="view" aria-pressed="false" hidden>Vezetői nézet</button></figcaption></figure>
 <section class="card lesson" aria-labelledby="title">
 <h2 id="title" tabindex="-1"></h2>
 <p id="scenario"></p>
@@ -61,26 +62,76 @@ const scenarios = [
   ['Kinek ad szabad utat a lámpa?','A lámpája zöld. A jobbról érkező B lámpája piros. Melyik autó haladhat át a bemutatott jelzésnél?', [['S','straight','green'],['E','straight','red']], 'A','A zöld jelzésre áthaladhat. B a piros fénynél a megállás helyét jelző vonal előtt marad.','9. § (4) a), d)'],
   ['A lámpa váltott','A most pirosat kap. B lámpája zöldre váltott. Melyik autó haladhat át a bemutatott jelzésnél?', [['S','straight','red'],['E','straight','green']], 'B','A pirosnál A vár. B zöld jelzést kapott, a kereszteződés a példában szabad, ezért áthaladhat.','9. § (4) a), d)']
 ];
+const topicTasks = {
+  right: [0, 1, 2], signs: [1, 3, 4], turning: [5, 6, 7], lights: [7, 8, 9], narrow: []
+};
+function addTask(topic, task) {
+  topicTasks[topic].push(scenarios.length);
+  scenarios.push(task);
+}
+const approaches = ['S','E','N','W'];
+for (const [i, side] of approaches.entries()) {
+  const right = approaches[(i+1)%4], opposite = approaches[(i+2)%4];
+  const left = approaches[(i+3)%4];
+  const from = {S:'déli',E:'keleti',N:'északi',W:'nyugati'}[side];
+  addTask('right', [from+' megközelítés · két autó',
+    'Egyenrangú kereszteződés, mindkét autó egyenesen halad.', [[side],[left]], 'AB',
+    'A a B vezető jobb oldaláról érkezik. B ezért megvárja A-t.', '28. § (1) a)']);
+  addTask('right', [from+' megközelítés · három autó',
+    'Három autó egyenesen halad. Elsőbbséget szabályozó tábla és lámpa nincs.', [[side],[left],[opposite]], 'ABC',
+    'A jobbjáról senki sem jön. B jobbjáról A érkezik, C jobbjáról pedig B, így a sorrend A, B, C.', '28. § (1) a)']);
+  addTask('signs', ['Elsőbbségadás '+from+' irányból',
+    'A előtt elsőbbségadás kötelező tábla áll. B a keresztező úton jön.', [[side,'straight','yield'],[left]], 'BA',
+    'A-nak a tábla miatt elsőbbséget kell adnia B-nek, aki a keresztező úton érkezik.', '12. § (1) a) és 28. § (2) b)']);
+  addTask('signs', ['STOP és harmadik autó '+from+' irányból',
+    'A előtt STOP tábla van. B és C az ugyanazon keresztező úton, egymással szemben egyenesen haladnak. Melyik autó vár a többire?',
+    [[side,'straight','stop'],[right],[left]], 'A',
+    'A megáll és elsőbbséget ad B-nek és C-nek. A másik két autó útvonala külön sávban halad, ezért köztük nem kell sorrendet kijelölni.',
+    '12. § (1) b) és 28. § (2) b)', {prompt:'Válaszd ki, kinek kell megvárnia a többieket.', animate:['BC','A']}]);
+  addTask('turning', ['Balra fordulás '+from+' irányból',
+    'A balra kanyarodik, a szemből érkező B jobbra fordul. Ugyanarra az útra kanyarodnak.', [[side,'left'],[opposite,'right']], 'BA',
+    'A balra kanyarodó A elsőbbséget ad a szemből jobbra kanyarodó B-nek.', '31. § (5) c) ca)']);
+  addTask('turning', ['Balra fordulás zöldnél '+from+' irányból',
+    'B balra fordul, A jobbra, ugyanarra az útra. Mindkettejüknek zöld körfény világít.', [[side,'right','green'],[opposite,'left','green']], 'AB',
+    'A zöld körfény mellett a balra kanyarodó B elsőbbséget ad a szemből jobbra kanyarodó A-nak.', '9. § (4) a) és 31. § (5) c) ca)']);
+  addTask('lights', ['Piros jelzés '+from+' irányból',
+    'A pirosat kapott, a keresztező irányból érkező B zöldet. A kereszteződés szabad.', [[side,'straight','red'],[left,'straight','green']], 'B',
+    'B a zöldre továbbmehet. A piros fény miatt A a megállás helyét jelző vonal előtt vár.', '9. § (4) a), d)']);
+  addTask('lights', ['Zöld jelzés '+from+' irányból',
+    'A jelzése zöld, a keresztező irányból érkező B-é piros. A kereszteződés szabad.', [[side,'straight','green'],[left,'straight','red']], 'A',
+    'A a zöldre továbbhaladhat. B a pirosnál a megállás helyét jelző vonal előtt vár.', '9. § (4) a), d)']);
+}
+for (const [place, half] of [['Híd',55],['Aluljáró',76]]) {
+  for (const opening of [-31,31]) {
+    const straight = opening === 31 ? 'A' : 'B';
+    const other = straight === 'A' ? 'B' : 'A';
+    addTask('narrow', [place+' tábla nélkül · '+(opening===31?'jobb':'bal')+' oldali átjáró',
+      'Az egysávos szakasz mindkét irányból belátható. Nincs elsőbbséget szabályozó jelzés.',
+      [['S'],['N']], straight+other,
+      straight+' irányváltoztatás nélkül tud áthaladni. '+other+' csak kitéréssel, ezért megvárja '+straight+' áthaladását.',
+      '32. § (3)', {narrow:true, opening, half}]);
+    addTask('narrow', [place+' táblával · '+(opening===31?'jobb':'bal')+' oldali átjáró',
+      'Mindkét autó a szűkület előtt van. Figyeld meg, melyik táblát látják.',
+      [['S','straight',other==='A'?'priority':'oncoming'],['N','straight',other==='B'?'priority':'oncoming']],
+      other+straight, 'A táblák szabályozzák az elsőbbséget. '+other+' a kék táblát látja, ezért elsőként halad át. '+straight+' megvárja.',
+      '12. § (1) c), d) és 32. § (3)', {narrow:true, opening, half}]);
+  }
+}
+
 const el = id => document.getElementById(id);
 const canvas = el('map');
 const ctx = canvas.getContext('2d');
 const colors = ['#195eb0','#a2421c','#6241a1'];
 const directions = {S:'Lentről',E:'Jobbról',N:'Fentről',W:'Balról'};
 const angles = {S:0,E:-Math.PI/2,N:Math.PI,W:Math.PI/2};
-const motions = {straight:'egyenesen',left:'balra'};
-const signalNames = {yield:'elsőbbségadás kötelező',stop:'STOP',green:'zöld lámpa',red:'piros lámpa'};
+const motions = {straight:'egyenesen',left:'balra',right:'jobbra'};
+const signalNames = {yield:'elsőbbségadás kötelező',stop:'STOP',green:'zöld lámpa',red:'piros lámpa',priority:'elsőbbség a szembejövő forgalommal szemben',oncoming:'a szembejövő forgalom elsőbbsége'};
 const ids = 'ABC';
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const mixedStorageKey = 'kresz-elsobbseg-v2';
 const topicStorageKey = 'kresz-elsobbseg-temakor';
-const topics = new Map([
-  ['all', scenarios.map((_, i) => i)],
-  ['right', [0, 1, 2]],
-  ['signs', [1, 3, 4]],
-  ['turning', [5, 6, 7]],
-  ['lights', [7, 8, 9]],
-  ['trial', scenarios.map((_, i) => i)]
-]);
+const allTasks = scenarios.map((_, i) => i);
+const topics = new Map([['all', allTasks], ...Object.entries(topicTasks), ['trial', allTasks]]);
 const sessions = new Map();
 let topic = 'all';
 try {
@@ -104,7 +155,7 @@ function shuffledTasks(tasks) {
     const other = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[other]] = [shuffled[other], shuffled[i]];
   }
-  return shuffled;
+  return shuffled.slice(0, 10);
 }
 function loadProgress() {
   const tasks = topics.get(topic);
@@ -147,6 +198,7 @@ const source = 'https://net.jogtar.hu/jogszabaly?docid=97500001.KPM';
 
 function label(car, i) {
   const [side, turn = 'straight', signal] = car;
+  if(active[6]?.narrow)return ids[i]+' · '+(i===0?'A vezetői nézet autója':'Szembejövő autó')+(signal?' · '+signalNames[signal]:'');
   return ids[i] + ' · ' + directions[side] + ', ' + motions[turn] + (signal ? ' · ' + signalNames[signal] : '');
 }
 function line(points, color, width, dash = []) {
@@ -157,7 +209,95 @@ function line(points, color, width, dash = []) {
 function rect(x,y,w,h,r,fill) {
   ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fillStyle=fill; ctx.fill();
 }
+function polygon(points, color) {
+  ctx.beginPath();
+  points.forEach(([x,y], i)=>i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
+  ctx.closePath();ctx.fillStyle=color;ctx.fill();
+}
+function narrowSign(x,y,signal,scale=1) {
+  if(!signal)return;
+  ctx.save();ctx.translate(x,y);ctx.scale(scale,scale);
+  const priority=signal==='priority';
+  if(priority) {
+    rect(-22,-23,44,46,3,'#1763a2');
+    ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.strokeRect(-20,-21,40,42);
+  } else {
+    ctx.beginPath();ctx.arc(0,0,22,0,Math.PI*2);
+    ctx.fillStyle='#fff';ctx.fill();ctx.strokeStyle='#ad232c';ctx.lineWidth=5;ctx.stroke();
+  }
+  const up=priority?'#fff':'#bf2630';
+  const down=priority?'#ed4347':'#171d1c';
+  line([[8,12],[8,-12],[3,-6]],up,4);
+  line([[8,-12],[13,-6]],up,4);
+  line([[-8,-12],[-8,12],[-13,6]],down,4);
+  line([[-8,12],[-3,6]],down,4);
+  ctx.restore();
+}
+function drawNarrow(positions={}) {
+  const {opening,half}=active[6];
+  const fromDriver=el('view').getAttribute('aria-pressed')==='true';
+  const obstaclesX=300-opening;
+  if(fromDriver) {
+    const zoom=1+.42*Math.sin((positions.A||0)*Math.PI/2);
+    ctx.save();ctx.translate(300,168);ctx.scale(zoom,zoom);ctx.translate(-300,-168);
+    const sky=ctx.createLinearGradient(0,0,0,220);
+    sky.addColorStop(0,'#6da7d0');sky.addColorStop(1,'#e3eef0');
+    ctx.fillStyle=sky;ctx.fillRect(0,0,600,480);
+    polygon([[0,173],[81,147],[159,166],[230,142],[410,159],[529,141],[600,170],[600,480],[0,480]],'#739764');
+    polygon([[277,168],[323,168],[594,480],[6,480]],'#414b52');
+    line([[277,168],[6,480]],'#ededdd',4);
+    line([[323,168],[594,480]],'#ededdd',4);
+    const offset=opening>0?-1:1;
+    polygon([[300+15*offset,190],[300+41*offset,190],[300+107*offset,295],[300+17*offset,295]],'#ece7d9');
+    for(let i=0;i<3;i++){
+      const y=220+i*25, x=300+(35+i*9)*offset;
+      rect(x-12,y,24,8,2,'#b94432');
+    }
+    if(active[2][0][2])line([[469,327],[469,231]],'#515c54',5);
+    narrowSign(469,223,active[2][0][2],1.18);
+    const oncoming=positions.B||0;
+    if(oncoming<1){
+      const size=38+oncoming*122;
+      const x=285+opening*(oncoming<.52?1:.5)-oncoming*38;
+      const y=196+oncoming*207;
+      rect(x-size/2,y-size*.55,size,size*.55,7,colors[1]);
+      rect(x-size*.31,y-size*.59,size*.62,size*.22,4,'#c3e2ec');
+      rect(x-size*.38,y-size*.18,size*.18,size*.1,2,'#fff5cf');
+      rect(x+size*.2,y-size*.18,size*.18,size*.1,2,'#fff5cf');
+      ctx.fillStyle='#fff';ctx.font='bold 16px system-ui';ctx.textAlign='center';ctx.fillText('B',x,y-6);
+    }
+    ctx.restore();
+    polygon([[0,480],[0,423],[110,395],[242,412],[351,412],[484,395],[600,423],[600,480]],colors[0]);
+    polygon([[0,480],[0,451],[147,431],[457,431],[600,450],[600,480]],'#162a2e');
+    ctx.fillStyle='#fff';ctx.font='bold 18px system-ui';ctx.textAlign='center';
+    ctx.fillText((positions.A||0)>0?'A áthalad':'A autó nézőpontja',300,457);
+    return;
+  }
+  ctx.fillStyle='#bfd2b1';ctx.fillRect(0,0,600,480);
+  ctx.fillStyle='#e7e7d9';ctx.fillRect(220,0,160,480);
+  ctx.fillStyle='#424c51';ctx.fillRect(228,0,144,480);
+  line([[300,0],[300,240-half-18]],'#cbd2ca',2,[10,8]);
+  line([[300,240+half+18],[300,480]],'#cbd2ca',2,[10,8]);
+  rect(obstaclesX-35,240-half,70,half*2,6,'#d3cbbc');
+  for(let y=250-half;y<238+half;y+=16)rect(obstaclesX-28,y,56,5,1,'#ae4d3e');
+  narrowSign(408,240+half+36,active[2][0][2]);
+  narrowSign(192,240-half-36,active[2][1][2]);
+  for(const [i,id] of ['A','B'].entries()){
+    const t=positions[id]||0;
+    if(t>=1)continue;
+    const direction=i===0?1:-1;
+    const y=240+direction*(half+60-t*(half+300));
+    const startLane=31*direction;
+    const near=Math.max(0,Math.min(1,(half+55-Math.abs(y-240))/55));
+    const x=300+startLane+(opening-startLane)*near;
+    ctx.save();ctx.translate(x,y);ctx.rotate(i===0?0:Math.PI);ctx.translate(-31,-117);
+    drawCar(i,i===0?'S':'N','straight',0);
+    ctx.restore();
+  }
+}
+
 function drawMap(positions = {}) {
+  if(active[6]?.narrow){drawNarrow(positions);return;}
   ctx.fillStyle='#c7d9bf'; ctx.fillRect(0,0,600,480);
   for (const [x,y] of [[42,38],[96,118],[170,61],[454,49],[541,115],[564,50],[64,391],[146,435],[486,400],[555,435]]) {
     ctx.beginPath(); ctx.arc(x,y,19,0,Math.PI*2); ctx.fillStyle='#a9c69e'; ctx.fill();
@@ -173,11 +313,14 @@ function drawMap(positions = {}) {
   }
   active[2].forEach(([side,turn = 'straight',signal],i) => {
     ctx.save(); ctx.rotate(angles[side]);
-    const end = turn === 'left' ? [-124,31] : [31,-127];
-    const path = turn === 'left' ? [[31,117],[31,67],[23,46],[0,32],end] : [[31,117],end];
+    const end = turn === 'left' ? [-124,-31] : turn === 'right' ? [124,31] : [31,-127];
+    const path = turn === 'left' ? [[31,117],[31,40],[8,-10],[-40,-31],end]
+      : turn === 'right' ? [[31,117],[31,70],[42,42],[66,31],end] : [[31,117],end];
     line(path,colors[i],5,[8,6]);
     const [x,y] = end;
-    line(turn==='left'?[[x+13,y-8],[x,y],[x+13,y+8]]:[[x-8,y+13],[x,y],[x+8,y+13]],'#eef8ed',3);
+    const arrow = turn==='straight' ? [[x-8,y+13],[x,y],[x+8,y+13]]
+      : [[x+(turn==='left'?13:-13),y-8],[x,y],[x+(turn==='left'?13:-13),y+8]];
+    line(arrow,'#eef8ed',3);
     if (signal) drawSignal(signal);
     const time = positions[ids[i]] || 0;
     if (time < 1) drawCar(i,side,turn,time);
@@ -212,12 +355,21 @@ function drawSignal(signal) {
 function drawCar(i,side,turn,t) {
   let x=31, y=117-320*t, heading=0;
   if(turn==='left') {
+    if(t<=.22) y=117-68*t/.22;
+    else if(t<.58) {
+      const arc=(t-.22)/.36*Math.PI/2;
+      x=-49+80*Math.cos(arc);y=49-80*Math.sin(arc);heading=-arc;
+    } else {
+      x=-49-235*(t-.58)/.42;y=-31;heading=-Math.PI/2;
+    }
+  }
+  if(turn==='right') {
     if(t<=.22) y=117-51*t/.22;
     else if(t<.58) {
       const arc=(t-.22)/.36*Math.PI/2;
-      x=-4+35*Math.cos(arc);y=66-35*Math.sin(arc);heading=-arc;
+      x=66-35*Math.cos(arc);y=66-35*Math.sin(arc);heading=arc;
     } else {
-      x=-4-235*(t-.58)/.42;y=31;heading=-Math.PI/2;
+      x=66+235*(t-.58)/.42;y=31;heading=Math.PI/2;
     }
   }
   ctx.save();ctx.translate(x,y);ctx.rotate(heading);
@@ -241,9 +393,14 @@ function render(focus=false) {
   el('scenario').textContent=isTrial()?'A megoldásokat és a magyarázatokat a kör végén látod.':active[1];
   el('check').textContent=isTrial()?'Válasz rögzítése':'Ellenőrzés';
   const single=active[3].length===1;
-  el('instruction').textContent=single?'Válaszd ki az autót, amelyik ennél a jelzésnél áthaladhat.':'Jelöld a járműveket az áthaladás sorrendjében. Újabb koppintással visszavonhatsz egy választást.';
-  el('caption').textContent='A nyilak a járművek tervezett útvonalát jelzik.';
-  canvas.setAttribute('aria-label','Kereszteződés. '+active[2].map(label).join('. '));
+  el('instruction').textContent=active[6]?.prompt || (single?'Válaszd ki az autót, amelyik ennél a jelzésnél áthaladhat.':'Jelöld a járműveket az áthaladás sorrendjében. Újabb koppintással visszavonhatsz egy választást.');
+  const narrow=active[6]?.narrow;
+  const driverView=el('view').getAttribute('aria-pressed')==='true';
+  el('view').hidden=!narrow;
+  el('caption').textContent=narrow?'Az útszűkületben egyszerre egy autó fér el.':'A nyilak a járművek tervezett útvonalát jelzik.';
+  el('view').textContent=driverView?'Felülnézet':'Vezetői nézet';
+  const road=narrow ? 'Egysávos útszűkület. A nyitott sáv az A autó felől nézve '+(active[6].opening>0?'jobbra':'balra')+' van. ' : 'Kereszteződés. ';
+  canvas.setAttribute('aria-label',road+active[2].map(label).join('. '));
   el('choices').replaceChildren(...active[2].map((car,i)=>{
     const button=document.createElement('button');
     button.className='choice';button.dataset.vehicle=ids[i];button.style.setProperty('--car',colors[i]);
@@ -284,11 +441,14 @@ function replay() {
   cancelAnimationFrame(frame);drawMap();
   if(reducedMotion.matches)return;
   const start=performance.now();
+  const phases=active[6]?.animate || [...active[3]];
   function animate(now) {
     const positions={};
-    [...active[3]].forEach((id,i)=>positions[id]=Math.max(0,Math.min(1,(now-start-i*940)/900)));
+    phases.forEach((group,i)=>{
+      for(const id of group)positions[id]=Math.max(0,Math.min(1,(now-start-i*1230)/1200));
+    });
     drawMap(positions);
-    if(now-start<active[3].length*940)frame=requestAnimationFrame(animate);
+    if(now-start<phases.length*1230)frame=requestAnimationFrame(animate);
     else drawMap();
   }
   frame=requestAnimationFrame(animate);
@@ -326,6 +486,13 @@ function showAnswer(animate) {
 }
 el('reset').onclick=()=>{chosen=[];refreshChoices();el('choices').firstElementChild.focus();};
 el('replay').onclick=replay;
+el('view').onclick=()=>{
+  cancelAnimationFrame(frame);
+  const driverView=el('view').getAttribute('aria-pressed')==='true';
+  el('view').setAttribute('aria-pressed',String(!driverView));
+  el('view').textContent=driverView?'Vezetői nézet':'Felülnézet';
+  drawMap();
+};
 function startRound(tasks, isReview) {
   queue=tasks;
   review=isReview;
