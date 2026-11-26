@@ -390,8 +390,119 @@ function drawNarrow(positions={}) {
   }
 }
 
+function rotatePoint(x,y,angle) {
+  return [x*Math.cos(angle)-y*Math.sin(angle),x*Math.sin(angle)+y*Math.cos(angle)];
+}
+function drawJunctionDriver(positions) {
+  const [approach,turn='straight']=active[2][0];
+  const t=positions.A||0;
+  const [ax,ay,heading]=carPose(turn,t);
+  const angle=angles[approach];
+  const [cx,cy]=rotatePoint(ax,ay,angle);
+  const yaw=angle+heading;
+  const viewPoint=(x,y,height=0)=>{
+    const [horizontal,depth]=rotatePoint(x-cx,y-cy,-yaw);
+    return [horizontal, -depth+34, height];
+  };
+  const project=([x,z,h])=>[300+241*x/z,179+241*(39-h)/z];
+  const near=19;
+  function face(points,fill){
+    const view=points.map(point=>viewPoint(...point));
+    const clipped=[];
+    view.forEach((point,i)=>{
+      const previous=view[(i+view.length-1)%view.length];
+      if((point[1]>=near)!==(previous[1]>=near)){
+        const ratio=(near-previous[1])/(point[1]-previous[1]);
+        clipped.push([previous[0]+ratio*(point[0]-previous[0]),near,previous[2]+ratio*(point[2]-previous[2])]);
+      }
+      if(point[1]>=near)clipped.push(point);
+    });
+    if(clipped.length>=3)polygon(clipped.map(project),fill);
+  }
+  function ground(x1,y1,x2,y2,color) {
+    face([[x1,y1],[x2,y1],[x2,y2],[x1,y2]],color);
+  }
+  const sky=ctx.createLinearGradient(0,0,0,185);
+  sky.addColorStop(0,'#6dabc9');sky.addColorStop(1,'#e4ece8');
+  ctx.fillStyle=sky;ctx.fillRect(0,0,600,180);
+  ctx.fillStyle='#81955e';ctx.fillRect(0,180,600,300);
+  for(let i=0;i<33;i++){
+    const x=i*20,y=179,h=8+i*7%19;
+    polygon([[x-12,y],[x-9,y-h*.62],[x,y-h],[x+9,y-h*.62],[x+12,y]],i%2?'#688259':'#6e875d');
+  }
+  ground(-1200,-80,1200,80,'#b1a68c');
+  ground(-80,-1200,80,1200,'#b1a68c');
+  ground(-1200,-71,1200,71,'#454f54');
+  ground(-71,-1200,71,1200,'#454f54');
+  for(const direction of Object.values(angles)){
+    for(let y=92;y<430;y+=35){
+      face([[-1,y],[1,y],[1,y+18],[-1,y+18]].map(([x,z])=>rotatePoint(x,z,direction)),'#dce3df');
+    }
+    for(const x of [-68,68]){
+      face([[x-1,79],[x+1,79],[x+1,1200],[x-1,1200]].map(([a,b])=>rotatePoint(a,b,direction)),'#d1d5c9');
+    }
+  }
+  const objects=[];
+  active[2].forEach(([side,motion='straight',signal],i)=>{
+    const rotation=angles[side];
+    if(signal){
+      const [x,y]=rotatePoint(92,93,rotation);
+      const marker=viewPoint(x,y,52);
+      if(marker[1]>near)objects.push({depth:marker[1],draw:()=>{
+        const [sx,sy]=project(marker);
+        line([[sx,sy],project(viewPoint(x,y))],'#303f3e',Math.max(2,210/marker[1]));
+        ctx.save();ctx.translate(sx,sy);ctx.scale(127/marker[1],127/marker[1]);ctx.translate(-94,-101);
+        drawSignal(signal,false);
+        ctx.restore();
+      }});
+      if(signal!=='yield'){
+        face([[3,74],[68,74],[68,79],[3,79]].map(([x,y])=>rotatePoint(x,y,rotation)),'#f2f1e8');
+      }
+    }
+    const progress=positions[ids[i]]||0;
+    if(i===0||progress>=1)return;
+    const [localX,localY,steer]=carPose(motion,progress);
+    const [x,y]=rotatePoint(localX,localY,rotation);
+    const marker=viewPoint(x,y,36);
+    objects.push({depth:marker[1],draw:()=>{
+      const local=(a,b,h)=>{
+        const [dx,dy]=rotatePoint(a,b,rotation+steer);
+        return [x+dx,y+dy,h];
+      };
+      const shape=(points,color)=>face(points.map(p=>local(...p)),color);
+      shape([[-18,-28,0],[18,-28,0],[18,28,0],[-18,28,0]],'#222b2e');
+      const sides=[
+        [[-17,-27,6],[-17,27,6],[-17,27,19],[-17,-27,19]],
+        [[17,-27,6],[17,27,6],[17,27,19],[17,-27,19]],
+        [[-17,-27,6],[17,-27,6],[17,-27,19],[-17,-27,19]],
+        [[-17,27,6],[17,27,6],[17,27,19],[-17,27,19]]
+      ];
+      for(const points of sides)shape(points,colors[i]);
+      shape([[-17,-27,19],[17,-27,19],[17,27,19],[-17,27,19]],colors[i]);
+      shape([[-13,-15,19],[13,-15,19],[11,-7,32],[-11,-7,32]],'#accbd5');
+      shape([[-13,16,19],[13,16,19],[11,8,32],[-11,8,32]],'#7c9aa8');
+      shape([[-13,-15,19],[-13,16,19],[-11,8,32],[-11,-7,32]],'#587987');
+      shape([[13,-15,19],[13,16,19],[11,8,32],[11,-7,32]],'#587987');
+      shape([[-11,-7,32],[11,-7,32],[11,8,32],[-11,8,32]],colors[i]);
+      if(marker[1]>near){
+        const [sx,sy]=project(marker);
+        rect(sx-11,sy-20,22,20,5,colors[i]);
+        ctx.fillStyle='#fff';ctx.font='bold 13px system-ui';ctx.textAlign='center';
+        ctx.fillText(ids[i],sx,sy-5);
+      }
+    }});
+  });
+  objects.sort((a,b)=>b.depth-a.depth).forEach(object=>object.draw());
+  polygon([[0,480],[0,427],[110,405],[220,419],[380,419],[490,405],[600,427],[600,480]],'#253740');
+  line([[15,436],[110,418],[220,429],[380,429],[490,418],[585,436]],'#6f8288',2);
+  rect(239,438,122,29,8,'#152229');
+  ctx.fillStyle='#f6f9f5';ctx.font='600 16px system-ui';ctx.textAlign='center';
+  ctx.fillText(t>0?'A halad':'A autó',300,458);
+}
+
 function drawMap(positions = {}) {
   if(active[6]?.narrow){drawNarrow(positions);return;}
+  if(el('view').getAttribute('aria-pressed')==='true'){drawJunctionDriver(positions);return;}
   ctx.fillStyle='#c7d9bf'; ctx.fillRect(0,0,600,480);
   for (const [x,y] of [[42,38],[96,118],[170,61],[454,49],[541,115],[564,50],[64,391],[146,435],[486,400],[555,435]]) {
     ctx.beginPath(); ctx.arc(x,y,19,0,Math.PI*2); ctx.fillStyle='#a9c69e'; ctx.fill();
@@ -422,8 +533,8 @@ function drawMap(positions = {}) {
   });
   ctx.restore();
 }
-function drawSignal(signal) {
-  if (signal!=='yield') line([[3,76],[68,76]],'#f9faf6',4);
+function drawSignal(signal,markStop=true) {
+  if (markStop && signal!=='yield') line([[3,76],[68,76]],'#f9faf6',4);
   ctx.save(); ctx.translate(94,101);
   if (signal==='stop') {
     ctx.beginPath();
@@ -446,7 +557,7 @@ function drawSignal(signal) {
   }
   ctx.restore();
 }
-function drawCar(i,side,turn,t) {
+function carPose(turn,t) {
   let x=31, y=117-320*t, heading=0;
   if(turn==='left') {
     if(t<=.22) y=117-68*t/.22;
@@ -466,6 +577,10 @@ function drawCar(i,side,turn,t) {
       x=66+235*(t-.58)/.42;y=31;heading=Math.PI/2;
     }
   }
+  return [x,y,heading];
+}
+function drawCar(i,side,turn,t) {
+  const [x,y,heading]=carPose(turn,t);
   ctx.save();ctx.translate(x,y);ctx.rotate(heading);
   rect(-17,-28,34,56,9,'#eaf3ee');
   rect(-15,-26,30,52,8,colors[i]);
@@ -479,6 +594,7 @@ function showScore() {
   el('progress').max=queue.length;
   el('progress').value=results.length;
 }
+let viewPreference;
 function render(focus=false) {
   resetPlayback();
   active=scenarios[queue[index]];chosen=[];solved=false;
@@ -489,7 +605,7 @@ function render(focus=false) {
   const single=active[3].length===1;
   el('instruction').textContent=active[6]?.prompt || (single?'Válaszd ki az autót, amelyik ennél a jelzésnél áthaladhat.':'Jelöld a járműveket az áthaladás sorrendjében. Újabb koppintással visszavonhatsz egy választást.');
   const narrow=active[6]?.narrow;
-  const driverView=Boolean(narrow);
+  const driverView=viewPreference ?? Boolean(narrow);
   el('view').setAttribute('aria-pressed',String(driverView));
   const sign=narrow?active[2][0][2]:null;
   el('sign-panel').hidden=!sign;
@@ -499,8 +615,8 @@ function render(focus=false) {
     narrowSign(50,50,sign,1.87,signContext);
     el('sign-name').textContent=signalNames[sign];
   }
-  el('view').hidden=!narrow;
-  el('caption').textContent=narrow?'Az útszűkületben egyszerre egy autó fér el.':'A nyilak a járművek tervezett útvonalát jelzik.';
+  el('view').hidden=false;
+  el('caption').textContent=narrow?'Az útszűkületben egyszerre egy autó fér el.':'Vezetői nézet az A autóból. Felülnézetben nyilak jelzik a tervezett útvonalakat.';
   el('view').textContent=driverView?'Felülnézet':'Vezetői nézet';
   const road=narrow ? 'Egysávos útszűkület. A nyitott sáv az A autó felől nézve '+(active[6].opening>0?'jobbra':'balra')+' van. ' : 'Kereszteződés. ';
   canvas.setAttribute('aria-label',road+active[2].map(label).join('. '));
@@ -640,7 +756,8 @@ el('previous-frame').onclick=()=>stepPlayback(-1);
 el('next-frame').onclick=()=>stepPlayback(1);
 el('view').onclick=()=>{
   const driverView=el('view').getAttribute('aria-pressed')==='true';
-  el('view').setAttribute('aria-pressed',String(!driverView));
+  viewPreference=!driverView;
+  el('view').setAttribute('aria-pressed',String(viewPreference));
   el('view').textContent=driverView?'Vezetői nézet':'Felülnézet';
   if(el('playback').hidden)drawMap();
   else drawPlayback();
