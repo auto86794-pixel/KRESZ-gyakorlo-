@@ -7,11 +7,22 @@
 <title>Ki mehet először? – KRESZ-gyakorló</title>
 <style>
 :root{font-family:system-ui,sans-serif;color:#122324;background:#f4f7f5;--ink:#132e2d;--green:#146452;--line:#dce7e1}*{box-sizing:border-box}body{margin:0}header{background:#102d2c;color:#fff}.wrap{max-width:1136px;margin:auto;padding-inline:clamp(16px,4vw,48px)}.brand{display:flex;align-items:center;gap:12px;font-weight:750;padding-block:18px}.brand span{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#c6f57b;color:var(--ink)}.hero{padding-block:14px 29px}.hero p{color:#d1e7dc;margin:0;font-size:1rem}h1{font-size:clamp(2rem,5vw,3.6rem);letter-spacing:-.05em;line-height:1.04;margin:10px 0 12px}main{padding-block:22px 35px}.progress{display:flex;justify-content:space-between;font-weight:700;gap:10px;margin-bottom:9px}progress{display:block;width:100%;height:9px;border:0;border-radius:10px;overflow:hidden;appearance:none;background:#dce8df}progress::-webkit-progress-bar{background:#dce8df}progress::-webkit-progress-value{background:#19735b}progress::-moz-progress-bar{background:#19735b}.grid{display:grid;grid-template-columns:1.15fr 1fr;gap:20px;margin-top:20px}.card{background:white;border:1px solid var(--line);border-radius:18px;overflow:hidden}.map{margin:0;background:#c7d9bf;align-self:start}canvas{display:block;width:100%;height:auto}figcaption{padding:10px 14px;background:white;color:#314b46;font-size:.875rem}.lesson{padding:clamp(16px,3vw,25px)}h2{font-size:clamp(1.45rem,3vw,2rem);margin:0;line-height:1.14;letter-spacing:-.035em}p{line-height:1.52}.hint{color:#3c5750}.choices{display:grid;gap:8px}.choice{display:flex;align-items:center;gap:10px;text-align:left;background:#f7faf8;color:var(--ink);border:1px solid var(--line);font-weight:650}.choice[aria-pressed=true]{background:#e7f4ec;border-color:#528674}.token{display:grid;place-items:center;width:30px;height:30px;flex:0 0 auto;border-radius:8px;background:var(--car);color:#fff}.rank{margin-left:auto;font-variant-numeric:tabular-nums}.buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}button{font:inherit;min-height:44px;padding:9px 13px;border:1px solid transparent;border-radius:10px;cursor:pointer}button:disabled{opacity:.58;cursor:default}button:focus-visible,a:focus-visible,h2:focus-visible{outline:3px solid #377fd2;outline-offset:3px}.primary{background:var(--green);color:#fff;font-weight:700}.secondary{background:white;border-color:var(--line);color:var(--ink);font-weight:650}.feedback{margin-top:14px;padding:12px 14px;background:#edf6f0;border-radius:10px;border:1px solid #cce2d4}.feedback[data-result=incorrect]{background:#fff4e3;border-color:#ead8b8}.feedback p{margin:.35rem 0}.feedback a,footer a{color:#125647}.feedback[hidden],[hidden]{display:none!important}footer{color:#3c5750;font-size:.875rem;margin-top:18px}@media(max-width:740px){.grid{grid-template-columns:1fr;gap:12px}.map canvas{max-height:360px;object-fit:contain}.hero{padding-bottom:20px}}
+.topic-picker{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-bottom:20px}.topic-picker label{font-weight:750}.topic-picker select{font:inherit;color:var(--ink);min-height:44px;max-width:100%;padding:8px 12px;border:1px solid #aebfb5;border-radius:10px;background:#fff}.topic-picker select:focus-visible{outline:3px solid #377fd2;outline-offset:3px}
 </style>
 </head>
 <body>
 <header><div class="wrap"><div class="brand"><span aria-hidden="true">K</span>KRESZ-gyakorló</div><div class="hero"><h1>Ki mehet először?</h1><p>B kategória · Elsőbbség a kereszteződésben</p></div></div></header>
 <main class="wrap">
+<div class="topic-picker">
+<label for="topic">Gyakorlási témakör</label>
+<select id="topic">
+<option value="all">Vegyes gyakorlás · 10 helyzet</option>
+<option value="right">Jobbkéz-szabály · 3 helyzet</option>
+<option value="signs">Elsőbbségadás és STOP · 3 helyzet</option>
+<option value="turning">Balra kanyarodás · 3 helyzet</option>
+<option value="lights">Jelzőlámpák · 3 helyzet</option>
+</select>
+</div>
 <div class="progress"><span id="counter"></span><span id="score"></span></div>
 <progress id="progress" max="10" value="0" aria-label="Megoldott helyzetek"></progress>
 <div class="grid">
@@ -57,27 +68,57 @@ const motions = {straight:'egyenesen',left:'balra'};
 const signalNames = {yield:'elsőbbségadás kötelező',stop:'STOP',green:'zöld lámpa',red:'piros lámpa'};
 const ids = 'ABC';
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const storageKey = 'kresz-elsobbseg-v2';
-const allTasks = scenarios.map((_, i) => i);
-let queue = allTasks, results = [], finished = false, review = false;
-let index = 0, chosen = [], solved = false, frame = 0;
+const mixedStorageKey = 'kresz-elsobbseg-v2';
+const topicStorageKey = 'kresz-elsobbseg-temakor';
+const topics = new Map([
+  ['all', scenarios.map((_, i) => i)],
+  ['right', [0, 1, 2]],
+  ['signs', [1, 3, 4]],
+  ['turning', [5, 6, 7]],
+  ['lights', [7, 8, 9]]
+]);
+const sessions = new Map();
+let topic = 'all';
 try {
-  const saved = JSON.parse(localStorage.getItem(storageKey));
-  if (saved && Array.isArray(saved.queue) && saved.queue.length &&
-      saved.queue.every(i => allTasks.includes(i)) &&
-      Array.isArray(saved.results) && saved.results.length <= saved.queue.length &&
-      saved.results.every(answer => typeof answer === 'string') &&
-      Number.isInteger(saved.index) && saved.index >= 0 && saved.index < saved.queue.length) {
-    ({queue, results, index, finished, review} = saved);
-  }
+  const lastTopic = localStorage.getItem(topicStorageKey);
+  if (topics.has(lastTopic)) topic = lastTopic;
 } catch {
-  // The full exercise remains available when storage is blocked.
+  // Continue without persistent storage.
+}
+let queue, results, finished, review, index;
+let chosen = [], solved = false, frame = 0;
+
+function roundStorageKey() {
+  return topic === 'all' ? mixedStorageKey : topicStorageKey + '-' + topic;
+}
+function loadProgress() {
+  const tasks = topics.get(topic);
+  let saved = sessions.get(topic);
+  if (!saved) {
+    try {
+      saved = JSON.parse(localStorage.getItem(roundStorageKey()));
+    } catch {
+      // An unavailable store or unreadable save starts a fresh round.
+    }
+  }
+  const valid = saved && Array.isArray(saved.queue) && saved.queue.length &&
+    new Set(saved.queue).size === saved.queue.length && saved.queue.every(i => tasks.includes(i)) &&
+    Number.isInteger(saved.index) && saved.index >= 0 && saved.index < saved.queue.length &&
+    Array.isArray(saved.results) && saved.results.every(answer => typeof answer === 'string') &&
+    (saved.results.length === saved.index || saved.results.length === saved.index + 1) &&
+    typeof saved.finished === 'boolean' && typeof saved.review === 'boolean' &&
+    (!saved.finished || saved.results.length === saved.queue.length);
+  ({queue, results, index, finished, review} = valid
+    ? {...saved, results: [...saved.results]}
+    : {queue:tasks, results:[], index:0, finished:false, review:false});
 }
 function saveProgress() {
+  const state = {queue, results:[...results], index, finished, review};
+  sessions.set(topic, state);
   try {
-    localStorage.setItem(storageKey, JSON.stringify({queue, results, index, finished, review}));
+    localStorage.setItem(roundStorageKey(), JSON.stringify(state));
   } catch {
-    // Keep the current session usable even if persistence is unavailable.
+    // Keep progress in memory while the page is open.
   }
 }
 function points() {
@@ -276,16 +317,17 @@ function showSummary(focus=false) {
   el('counter').textContent=review?'Ismétlés vége':'Gyakorlás vége';
   for(const id of ['instruction','choices','feedback','replay','check','reset'])el(id).hidden=true;
   el('next').hidden=false;
-  el('next').textContent=missed.length?'Hibás feladatok gyakorlása ('+missed.length+')':'Összes feladat újrakezdése';
+  el('next').textContent=missed.length?'Hibás feladatok gyakorlása ('+missed.length+')':(topic==='all'?'Összes feladat újrakezdése':'Témakör újrakezdése');
+  el('restart').textContent=topic==='all'?'Összes feladat újrakezdése':'Témakör újrakezdése';
   el('restart').hidden=!missed.length;
   showScore();
   if(focus)el('title').focus();
 }
-el('restart').onclick=()=>startRound(allTasks,false);
+el('restart').onclick=()=>startRound(topics.get(topic),false);
 el('next').onclick=()=>{
   if(finished) {
     const missed=missedTasks();
-    startRound(missed.length?missed:allTasks,missed.length>0);
+    startRound(missed.length?missed:topics.get(topic),missed.length>0);
     return;
   }
   if(index<queue.length-1){
@@ -298,8 +340,25 @@ el('next').onclick=()=>{
   saveProgress();
   showSummary(true);
 };
-render();
-if(finished)showSummary();
+function openTopic() {
+  el('topic').value=topic;
+  loadProgress();
+  render();
+  if(finished)showSummary();
+}
+el('topic').onchange=()=>{
+  const selected=el('topic').value;
+  if(!topics.has(selected) || selected===topic)return;
+  saveProgress();
+  topic=selected;
+  try {
+    localStorage.setItem(topicStorageKey, topic);
+  } catch {
+    // The selection still takes effect for the current page.
+  }
+  openTopic();
+};
+openTopic();
 </script>
 </body>
 </html>
