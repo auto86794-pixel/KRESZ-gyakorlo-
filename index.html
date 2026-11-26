@@ -27,6 +27,7 @@
 <button class="secondary" id="reset">Sorrend törlése</button>
 <button class="secondary" id="replay" hidden>Animáció lejátszása</button>
 <button class="primary" id="next" hidden></button>
+<button class="secondary" id="restart" hidden>Összes feladat újrakezdése</button>
 </div>
 </section>
 </div>
@@ -56,7 +57,35 @@ const motions = {straight:'egyenesen',left:'balra'};
 const signalNames = {yield:'elsőbbségadás kötelező',stop:'STOP',green:'zöld lámpa',red:'piros lámpa'};
 const ids = 'ABC';
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-let index = 0, chosen = [], solved = false, score = 0, frame = 0;
+const storageKey = 'kresz-elsobbseg-v2';
+const allTasks = scenarios.map((_, i) => i);
+let queue = allTasks, results = [], finished = false, review = false;
+let index = 0, chosen = [], solved = false, frame = 0;
+try {
+  const saved = JSON.parse(localStorage.getItem(storageKey));
+  if (saved && Array.isArray(saved.queue) && saved.queue.length &&
+      saved.queue.every(i => allTasks.includes(i)) &&
+      Array.isArray(saved.results) && saved.results.length <= saved.queue.length &&
+      saved.results.every(answer => typeof answer === 'string') &&
+      Number.isInteger(saved.index) && saved.index >= 0 && saved.index < saved.queue.length) {
+    ({queue, results, index, finished, review} = saved);
+  }
+} catch {
+  // The full exercise remains available when storage is blocked.
+}
+function saveProgress() {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify({queue, results, index, finished, review}));
+  } catch {
+    // Keep the current session usable even if persistence is unavailable.
+  }
+}
+function points() {
+  return results.filter((answer, i) => answer === scenarios[queue[i]][3]).length;
+}
+function missedTasks() {
+  return queue.filter((task, i) => results[i] !== scenarios[task][3]);
+}
 let active = scenarios[0];
 const source = 'https://net.jogtar.hu/jogszabaly?docid=97500001.KPM';
 
@@ -144,13 +173,14 @@ function drawCar(i,side,turn,t) {
   ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='bold 17px system-ui';ctx.fillText(ids[i],0,1);ctx.restore();
 }
 function showScore() {
-  el('score').textContent=score+' helyes';
-  el('progress').value=index+Number(solved);
+  el('score').textContent=points()+' helyes';
+  el('progress').max=queue.length;
+  el('progress').value=results.length;
 }
 function render(focus=false) {
   cancelAnimationFrame(frame);
-  active=scenarios[index];chosen=[];solved=false;
-  el('counter').textContent=(index+1)+' / '+scenarios.length+' helyzet';
+  active=scenarios[queue[index]];chosen=[];solved=false;
+  el('counter').textContent=(review?'Ismétlés · ':'')+(index+1)+' / '+queue.length+' helyzet';
   el('title').textContent=active[0];el('scenario').textContent=active[1];
   const single=active[3].length===1;
   el('instruction').textContent=single?'Válaszd ki az autót, amelyik ennél a jelzésnél áthaladhat.':'Jelöld a járműveket az áthaladás sorrendjében. Újabb koppintással visszavonhatsz egy választást.';
@@ -165,8 +195,12 @@ function render(focus=false) {
     button.append(icon,desc,rank);button.addEventListener('click',()=>select(ids[i]));return button;
   }));
   for(const id of ['instruction','choices','check','reset','map']) el(id).hidden=false;
-  for(const id of ['feedback','replay','next']) el(id).hidden=true;
+  for(const id of ['feedback','replay','next','restart']) el(id).hidden=true;
   refreshChoices();showScore();drawMap();
+  if(results[index] !== undefined) {
+    chosen=[...results[index]];
+    showAnswer(false);
+  }
   if(focus)el('title').focus();
 }
 function select(id) {
@@ -203,9 +237,13 @@ function replay() {
 }
 el('check').onclick=()=>{
   if(solved||chosen.length!==active[3].length)return;
+  results[index]=chosen.join('');
+  saveProgress();
+  showAnswer(true);
+};
+function showAnswer(animate) {
   solved=true;
   const correct=chosen.join('')===active[3];
-  score+=Number(correct);
   const feedback=el('feedback');feedback.dataset.result=correct?'correct':'incorrect';
   const strong=document.createElement('strong');
   strong.textContent=(correct?'Helyes. ':'A helyes megoldás. ')+[...active[3]].join(' → ');
@@ -215,22 +253,53 @@ el('check').onclick=()=>{
   refreshChoices();showScore();
   el('check').hidden=true;el('reset').hidden=true;
   el('replay').hidden=reducedMotion.matches;
-  el('next').hidden=false;el('next').textContent=index===scenarios.length-1?'Eredmény':'Következő helyzet';
-  el('next').focus();replay();
-};
+  el('next').hidden=false;el('next').textContent=index===queue.length-1?'Eredmény':'Következő helyzet';
+  if(animate){el('next').focus();replay();}
+}
 el('reset').onclick=()=>{chosen=[];refreshChoices();el('choices').firstElementChild.focus();};
 el('replay').onclick=replay;
+function startRound(tasks, isReview) {
+  queue=tasks;
+  review=isReview;
+  index=0;
+  results=[];
+  finished=false;
+  saveProgress();
+  render(true);
+}
+function showSummary(focus=false) {
+  cancelAnimationFrame(frame);
+  drawMap();
+  const missed=missedTasks();
+  el('title').textContent=review?'Befejezted az ismétlést':'Befejezted a gyakorlást';
+  el('scenario').textContent=queue.length+' helyzetből '+points()+' feladatot oldottál meg helyesen.';
+  el('counter').textContent=review?'Ismétlés vége':'Gyakorlás vége';
+  for(const id of ['instruction','choices','feedback','replay','check','reset'])el(id).hidden=true;
+  el('next').hidden=false;
+  el('next').textContent=missed.length?'Hibás feladatok gyakorlása ('+missed.length+')':'Összes feladat újrakezdése';
+  el('restart').hidden=!missed.length;
+  showScore();
+  if(focus)el('title').focus();
+}
+el('restart').onclick=()=>startRound(allTasks,false);
 el('next').onclick=()=>{
-  if(index<scenarios.length-1){index++;render(true);return;}
-  cancelAnimationFrame(frame);drawMap();
-  el('title').textContent='Befejezted a gyakorlást';
-  el('scenario').textContent=scenarios.length+' helyzetből '+score+' feladatot oldottál meg helyesen. Újrakezdéskor mindegyik helyzetet ismét kipróbálhatod.';
-  el('counter').textContent='Gyakorlás vége';
-  for(const id of ['instruction','choices','feedback','replay'])el(id).hidden=true;
-  el('next').textContent='Újrakezdés';el('next').focus();
-  el('next').onclick=()=>location.reload();
+  if(finished) {
+    const missed=missedTasks();
+    startRound(missed.length?missed:allTasks,missed.length>0);
+    return;
+  }
+  if(index<queue.length-1){
+    index++;
+    saveProgress();
+    render(true);
+    return;
+  }
+  finished=true;
+  saveProgress();
+  showSummary(true);
 };
 render();
+if(finished)showSummary();
 </script>
 </body>
 </html>
