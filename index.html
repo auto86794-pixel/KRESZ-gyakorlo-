@@ -8,6 +8,7 @@
 <style>
 :root{font-family:system-ui,sans-serif;color:#122324;background:#f4f7f5;--ink:#132e2d;--green:#146452;--line:#dce7e1}*{box-sizing:border-box}body{margin:0}header{background:#102d2c;color:#fff}.wrap{max-width:1136px;margin:auto;padding-inline:clamp(16px,4vw,48px)}.brand{display:flex;align-items:center;gap:12px;font-weight:750;padding-block:18px}.brand span{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#c6f57b;color:var(--ink)}.hero{padding-block:14px 29px}.hero p{color:#d1e7dc;margin:0;font-size:1rem}h1{font-size:clamp(2rem,5vw,3.6rem);letter-spacing:-.05em;line-height:1.04;margin:10px 0 12px}main{padding-block:22px 35px}.progress{display:flex;justify-content:space-between;font-weight:700;gap:10px;margin-bottom:9px}progress{display:block;width:100%;height:9px;border:0;border-radius:10px;overflow:hidden;appearance:none;background:#dce8df}progress::-webkit-progress-bar{background:#dce8df}progress::-webkit-progress-value{background:#19735b}progress::-moz-progress-bar{background:#19735b}.grid{display:grid;grid-template-columns:1.15fr 1fr;gap:20px;margin-top:20px}.card{background:white;border:1px solid var(--line);border-radius:18px;overflow:hidden}.map{margin:0;background:#c7d9bf;align-self:start}canvas{display:block;width:100%;height:auto}figcaption{padding:10px 14px;background:white;color:#314b46;font-size:.875rem}.lesson{padding:clamp(16px,3vw,25px)}h2{font-size:clamp(1.45rem,3vw,2rem);margin:0;line-height:1.14;letter-spacing:-.035em}p{line-height:1.52}.hint{color:#3c5750}.choices{display:grid;gap:8px}.choice{display:flex;align-items:center;gap:10px;text-align:left;background:#f7faf8;color:var(--ink);border:1px solid var(--line);font-weight:650}.choice[aria-pressed=true]{background:#e7f4ec;border-color:#528674}.token{display:grid;place-items:center;width:30px;height:30px;flex:0 0 auto;border-radius:8px;background:var(--car);color:#fff}.rank{margin-left:auto;font-variant-numeric:tabular-nums}.buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}button{font:inherit;min-height:44px;padding:9px 13px;border:1px solid transparent;border-radius:10px;cursor:pointer}button:disabled{opacity:.58;cursor:default}button:focus-visible,a:focus-visible,h2:focus-visible{outline:3px solid #377fd2;outline-offset:3px}.primary{background:var(--green);color:#fff;font-weight:700}.secondary{background:white;border-color:var(--line);color:var(--ink);font-weight:650}.feedback{margin-top:14px;padding:12px 14px;background:#edf6f0;border-radius:10px;border:1px solid #cce2d4}.feedback[data-result=incorrect]{background:#fff4e3;border-color:#ead8b8}.feedback p{margin:.35rem 0}.feedback a,footer a{color:#125647}.feedback[hidden],[hidden]{display:none!important}footer{color:#3c5750;font-size:.875rem;margin-top:18px}@media(max-width:740px){.grid{grid-template-columns:1fr;gap:12px}.map canvas{max-height:360px;object-fit:contain}.hero{padding-bottom:20px}}
 .topic-picker{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-bottom:20px}.topic-picker label{font-weight:750}.topic-picker select{font:inherit;color:var(--ink);min-height:44px;max-width:100%;padding:8px 12px;border:1px solid #aebfb5;border-radius:10px;background:#fff}.topic-picker select:focus-visible{outline:3px solid #377fd2;outline-offset:3px}
+.trial-results{padding-left:1.3rem}.trial-results li{margin-block:10px}.trial-results summary{cursor:pointer;font-weight:650;padding-block:5px}.trial-results p{margin:5px 0 12px}
 </style>
 </head>
 <body>
@@ -21,6 +22,7 @@
 <option value="signs">Elsőbbségadás és STOP · 3 helyzet</option>
 <option value="turning">Balra kanyarodás · 3 helyzet</option>
 <option value="lights">Jelzőlámpák · 3 helyzet</option>
+<option value="trial">Próbakör · 10 kevert helyzet</option>
 </select>
 </div>
 <div class="progress"><span id="counter"></span><span id="score"></span></div>
@@ -33,6 +35,7 @@
 <p id="instruction" class="hint">Jelöld a járműveket az áthaladás sorrendjében. Újabb koppintással visszavonhatsz egy választást.</p>
 <div class="choices" id="choices"></div>
 <div id="feedback" class="feedback" role="status" hidden></div>
+<ol class="trial-results" id="trial-results" hidden></ol>
 <div class="buttons">
 <button class="primary" id="check">Ellenőrzés</button>
 <button class="secondary" id="reset">Sorrend törlése</button>
@@ -75,7 +78,8 @@ const topics = new Map([
   ['right', [0, 1, 2]],
   ['signs', [1, 3, 4]],
   ['turning', [5, 6, 7]],
-  ['lights', [7, 8, 9]]
+  ['lights', [7, 8, 9]],
+  ['trial', scenarios.map((_, i) => i)]
 ]);
 const sessions = new Map();
 let topic = 'all';
@@ -90,6 +94,17 @@ let chosen = [], solved = false, frame = 0;
 
 function roundStorageKey() {
   return topic === 'all' ? mixedStorageKey : topicStorageKey + '-' + topic;
+}
+function isTrial() {
+  return topic === 'trial';
+}
+function shuffledTasks(tasks) {
+  const shuffled = [...tasks];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const other = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[other]] = [shuffled[other], shuffled[i]];
+  }
+  return shuffled;
 }
 function loadProgress() {
   const tasks = topics.get(topic);
@@ -110,7 +125,7 @@ function loadProgress() {
     (!saved.finished || saved.results.length === saved.queue.length);
   ({queue, results, index, finished, review} = valid
     ? {...saved, results: [...saved.results]}
-    : {queue:tasks, results:[], index:0, finished:false, review:false});
+    : {queue:isTrial() ? shuffledTasks(tasks) : tasks, results:[], index:0, finished:false, review:false});
 }
 function saveProgress() {
   const state = {queue, results:[...results], index, finished, review};
@@ -214,7 +229,7 @@ function drawCar(i,side,turn,t) {
   ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.font='bold 17px system-ui';ctx.fillText(ids[i],0,1);ctx.restore();
 }
 function showScore() {
-  el('score').textContent=points()+' helyes';
+  el('score').textContent=isTrial()&&!finished ? results.length+' rögzítve' : points()+' helyes';
   el('progress').max=queue.length;
   el('progress').value=results.length;
 }
@@ -222,7 +237,9 @@ function render(focus=false) {
   cancelAnimationFrame(frame);
   active=scenarios[queue[index]];chosen=[];solved=false;
   el('counter').textContent=(review?'Ismétlés · ':'')+(index+1)+' / '+queue.length+' helyzet';
-  el('title').textContent=active[0];el('scenario').textContent=active[1];
+  el('title').textContent=isTrial()?'Próbakör':active[0];
+  el('scenario').textContent=isTrial()?'A megoldásokat és a magyarázatokat a kör végén látod.':active[1];
+  el('check').textContent=isTrial()?'Válasz rögzítése':'Ellenőrzés';
   const single=active[3].length===1;
   el('instruction').textContent=single?'Válaszd ki az autót, amelyik ennél a jelzésnél áthaladhat.':'Jelöld a járműveket az áthaladás sorrendjében. Újabb koppintással visszavonhatsz egy választást.';
   el('caption').textContent='A nyilak a járművek tervezett útvonalát jelzik.';
@@ -236,7 +253,7 @@ function render(focus=false) {
     button.append(icon,desc,rank);button.addEventListener('click',()=>select(ids[i]));return button;
   }));
   for(const id of ['instruction','choices','check','reset','map']) el(id).hidden=false;
-  for(const id of ['feedback','replay','next','restart']) el(id).hidden=true;
+  for(const id of ['feedback','replay','next','restart','trial-results']) el(id).hidden=true;
   refreshChoices();showScore();drawMap();
   if(results[index] !== undefined) {
     chosen=[...results[index]];
@@ -284,6 +301,16 @@ el('check').onclick=()=>{
 };
 function showAnswer(animate) {
   solved=true;
+  if(isTrial()) {
+    refreshChoices();
+    showScore();
+    el('check').hidden=true;
+    el('reset').hidden=true;
+    el('next').hidden=false;
+    el('next').textContent=index===queue.length-1?'Eredmény':'Következő helyzet';
+    if(animate)el('next').focus();
+    return;
+  }
   const correct=chosen.join('')===active[3];
   const feedback=el('feedback');feedback.dataset.result=correct?'correct':'incorrect';
   const strong=document.createElement('strong');
@@ -312,6 +339,7 @@ function showSummary(focus=false) {
   cancelAnimationFrame(frame);
   drawMap();
   const missed=missedTasks();
+  if(isTrial()){showTrialSummary(focus);return;}
   el('title').textContent=review?'Befejezted az ismétlést':'Befejezted a gyakorlást';
   el('scenario').textContent=queue.length+' helyzetből '+points()+' feladatot oldottál meg helyesen.';
   el('counter').textContent=review?'Ismétlés vége':'Gyakorlás vége';
@@ -323,9 +351,34 @@ function showSummary(focus=false) {
   showScore();
   if(focus)el('title').focus();
 }
+function showTrialSummary(focus) {
+  el('title').textContent='Próbakör eredménye';
+  el('scenario').textContent=queue.length+' helyzetből '+points()+' feladatot oldottál meg helyesen. Nyisd le a helyzeteket a magyarázathoz.';
+  el('counter').textContent='Próbakör vége';
+  for(const id of ['instruction','choices','feedback','replay','check','reset','restart','map'])el(id).hidden=true;
+  const list=el('trial-results');
+  list.replaceChildren(...queue.map((task, i)=>{
+    const [title,, ,answer,explanation]=scenarios[task];
+    const item=document.createElement('li');
+    const details=document.createElement('details');
+    const summary=document.createElement('summary');
+    summary.textContent=(results[i]===answer?'Helyes · ':'Hibás · ')+title;
+    const text=document.createElement('p');
+    text.textContent='Válaszod: '+[...results[i]].join(' → ')+'. Helyes megoldás: '+[...answer].join(' → ')+'. '+explanation;
+    details.append(summary,text);
+    item.append(details);
+    return item;
+  }));
+  list.hidden=false;
+  el('next').hidden=false;
+  el('next').textContent='Új próbakör';
+  showScore();
+  if(focus)el('title').focus();
+}
 el('restart').onclick=()=>startRound(topics.get(topic),false);
 el('next').onclick=()=>{
   if(finished) {
+    if(isTrial()){startRound(shuffledTasks(topics.get(topic)),false);return;}
     const missed=missedTasks();
     startRound(missed.length?missed:topics.get(topic),missed.length>0);
     return;
@@ -343,6 +396,7 @@ el('next').onclick=()=>{
 function openTopic() {
   el('topic').value=topic;
   loadProgress();
+  if(isTrial())saveProgress();
   render();
   if(finished)showSummary();
 }
